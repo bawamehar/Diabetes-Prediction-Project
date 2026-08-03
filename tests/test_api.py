@@ -51,7 +51,7 @@ def test_model_handles_bad_input_gracefully():
     try:
         model.predict(bad_input)
         raised = False
-    except Exception:
+    except (ValueError, TypeError):
         raised = True
 
     assert raised, "Model should raise an error on invalid/None input"
