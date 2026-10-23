@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 MODEL_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "models", "AdaBoostClassifier.joblib"
+    os.path.dirname(__file__), "..", "models", "best_model.joblib"
 )
 
 

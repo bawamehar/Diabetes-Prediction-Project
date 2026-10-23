@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Secrets and local configuration - never commit these
+.env
+.env.*
+.streamlit/secrets.toml
+
+# uv lock file: Streamlit Community Cloud prefers uv.lock over requirements.txt, so a
+# stale or dev-flavoured lock file would silently override the pinned deployment
+# dependencies. requirements.txt is the single source of truth for deployment.
+uv.lock
+
+# Local editor/tool state
+.claude/

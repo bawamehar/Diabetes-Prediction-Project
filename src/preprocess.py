@@ -1,17 +1,21 @@
-from dataload import read_data
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 print("preprocess.py loaded")
 
+# Features collected by the Streamlit UI / API. The model is trained on exactly
+# this set so there's no train/serve mismatch (previously the model was trained
+# on all 21 columns and the UI's missing 14 were filled with dataset medians,
+# which diluted the risk signal from the 7 features users actually enter).
+UI_FEATURES = ['HighBP', 'HighChol', 'BMI', 'GenHlth', 'Age', 'Income', 'Education']
+
 def preprocess_data(df):
     df['Diabetes_012'] =df['Diabetes_012'].replace({2:1})
     df = df.rename(columns = {'Diabetes_012': 'Diabetes_binary'})
     target = 'Diabetes_binary'
-    independent_vars = df.drop(target, axis=1)
+    independent_vars = df[UI_FEATURES]
     dependent_var = df[target]
-    df.head(5)
-    
+
     return independent_vars, dependent_var
 
 def train_test_data(X, y, test_size=0.1, random_state=25):
@@ -32,42 +36,14 @@ def train_test_data(X, y, test_size=0.1, random_state=25):
 
 def get_feature_names():
     """Return the list of independent variable names used for training."""
-    df = read_data()
-    X, _ = preprocess_data(df)
-    return list(X.columns)
-
-
-def build_scaler(X=None):
-    """Return a StandardScaler fitted on X (or on full training data if X is None)."""
-    if X is None:
-        df = read_data()
-        X, _ = preprocess_data(df)
-    scaler = StandardScaler()
-    scaler.fit(X)
-    return scaler
+    return list(UI_FEATURES)
 
 
 def transform_user_input(user_df):
     """
-    Given a single-row (or multi-row) DataFrame with feature columns, reorder/align
-    to training columns, fill missing columns with zeros, and return scaled numpy array.
-    This fits a StandardScaler on the full training independent variables
+    Reorder/align a single-row (or multi-row) DataFrame with the UI feature columns
+    to match the training column order. Scaling is handled internally by the saved
+    model pipeline (StandardScaler + classifier), not here.
     """
-    # Ensure columns and ordering match training
-    df_train = read_data()
-    X_train, _ = preprocess_data(df_train)
-    train_cols = list(X_train.columns)
-
-    # Reindex user_df to the training columns; missing columns will be filled with
-    # sensible defaults (training medians) rather than zeros to avoid biasing predictions.
-    user_aligned = user_df.reindex(columns=train_cols)
-
-    # Compute training medians for imputation
-    medians = X_train.median()
-    # Fill missing user values (NaN) using training medians
-    user_aligned = user_aligned.fillna(medians)
-
-    scaler = build_scaler(X_train)
-    X_scaled = scaler.transform(user_aligned)
-    return X_scaled
+    return user_df.reindex(columns=UI_FEATURES)
 

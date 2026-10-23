@@ -1,24 +1,40 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_validate
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
     make_scorer, accuracy_score, precision_score, recall_score,
     f1_score, roc_auc_score, confusion_matrix
 )
-# from sklearn.tree import DecisionTreeClassifier
-# from sklearn.linear_model import LogisticRegression
-
-# from sklearn.ensemble import (
-#     RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
-# )
-# from xgboost import XGBClassifier
-from sklearn.model_selection import StratifiedKFold, cross_validate
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import (
+    RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
+)
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
 from preprocess import preprocess_data
 from dataload import read_data
 
-df = read_data()     
+df = read_data()
 independent_vars, dependent_var = preprocess_data(df)
 
-def classification_cv(model, X=independent_vars, y=dependent_var, cv_splits=5):
+
+def get_candidate_models():
+    """The set of models compared during training. Single source of truth so
+    train.py and predict.py always compare the same candidates."""
+    return {
+        'Logistic Regression': LogisticRegression(max_iter=1000),
+        'Decision Tree': DecisionTreeClassifier(random_state=52),
+        'Random Forest': RandomForestClassifier(random_state=52),
+        'gradient boost': GradientBoostingClassifier(random_state=52),
+        'adaboost': AdaBoostClassifier(random_state=52),
+        'XGBoost': XGBClassifier(eval_metric='logloss'),
+        'LightGBM': LGBMClassifier(random_state=52, verbose=-1),
+    }
+
+
+def classification_cv(model, X=independent_vars, y=dependent_var, cv_splits=5, sample_weight=None):
     # Define scoring metrics
     scoring = {
         'accuracy': make_scorer(accuracy_score),
@@ -27,12 +43,22 @@ def classification_cv(model, X=independent_vars, y=dependent_var, cv_splits=5):
         'f1': make_scorer(f1_score, zero_division=0),
         'roc_auc': 'roc_auc'
     }
-    
+
     # Create stratified K-Fold cross-validator
     cv = StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=42)
 
-    # Run cross-validation
-    cv_results = cross_validate(model, X, y, cv=cv, scoring=scoring, return_train_score=True)
+    # Scale inside the CV pipeline (not before it) so each fold's scaler is fit only on
+    # that fold's training data - fitting a scaler on the whole set beforehand leaks a
+    # bit of validation-fold information into the training statistics.
+    pipeline = Pipeline([('scaler', StandardScaler()), ('clf', model)])
+
+    # sample_weight (e.g. from compute_sample_weight('balanced', y)) corrects for the
+    # dataset's ~84/16 class imbalance, which otherwise causes every model to collapse
+    # toward always predicting the majority "no diabetes" class. Routed to the 'clf'
+    # step specifically since StandardScaler doesn't take sample_weight.
+    fit_params = {'clf__sample_weight': sample_weight} if sample_weight is not None else None
+    cv_results = cross_validate(pipeline, X, y, cv=cv, scoring=scoring, return_train_score=True,
+                                 params=fit_params)
 
     # Collect average metrics
     df_metrics = pd.DataFrame({
@@ -53,24 +79,6 @@ def classification_cv(model, X=independent_vars, y=dependent_var, cv_splits=5):
 
     return df_metrics
 
-# models = {
-#     'Logistic Regression': LogisticRegression(max_iter=1000),
-#     'Decision Tree':DecisionTreeClassifier(random_state=52),
-#     'Random Forest':  RandomForestClassifier(random_state=52),
-#     'gradient boost': GradientBoostingClassifier(random_state=52),
-#     'adaboost':  AdaBoostClassifier(random_state=52),
-#     'XGBoost': XGBClassifier(eval_metric='logloss')
-# }
-
-# results = {}
-
-# for name, model in models.items():
-#     print(f"\nEvaluating {name}")
-#     df_metrics = classification_cv(model)
-#     results[name] = df_metrics
-    
-    
-# think about fuction whihc one to take then use that model  to dumbh and predict 
 def select_best_model(results, weight_accuracy=0.4, weight_recall=0.3, weight_rocauc=0.3):
     scores = []
 

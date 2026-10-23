@@ -1,0 +1,16 @@
+# Everything needed for local development: the runtime app + model training + tests
+# + the optional patient-logging API. Not used for deployment.
+-r requirements.txt
+
+# model training (src/train.py)
+xgboost
+lightgbm
+
+# optional local patient-logging API (api/)
+fastapi
+uvicorn
+psycopg2-binary
+
+# tests
+pytest
+httpx

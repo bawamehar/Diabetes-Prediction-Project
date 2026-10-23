@@ -1,0 +1,9 @@
+[browser]
+# No usage analytics/telemetry from the app
+gatherUsageStats = false
+
+[client]
+# Never show Python tracebacks or exception details to visitors
+showErrorDetails = "none"
+# Hide developer-only toolbar items (e.g. Deploy) for public viewers
+toolbarMode = "minimal"

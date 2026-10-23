@@ -1,26 +1,30 @@
 [project]
 name = "classificationhealthdiabetes"
 version = "0.1.0"
-description = "Add your description here"
+description = "Educational diabetes risk check: scikit-learn model served through a Streamlit app"
 readme = "README.md"
 authors = [
     { name = "bawamehar", email = "bawamehar@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "pandas>=2.3.1",
+    "streamlit>=1.40",
     "scikit-learn>=1.6.1",
-    "xgboost>=2.1.4",
+    "pandas>=2.3.1",
+    "numpy",
+    "joblib",
 ]
 
-[project.scripts]
-classificationhealthdiabetes = "classificationhealthdiabetes:main"
-
-[build-system]
-requires = ["uv_build>=0.8.6,<0.9.0"]
-build-backend = "uv_build"
+# This is an application, not an installable package, so there is no [build-system].
+# Exact, tested versions for deployment are pinned in requirements.txt.
 
 [dependency-groups]
 dev = [
+    "xgboost>=2.1.4",
+    "lightgbm>=4.7.0",
+    "fastapi",
+    "uvicorn",
+    "psycopg2-binary",
+    "pytest",
     "ipykernel>=6.30.1",
 ]
