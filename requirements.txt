@@ -1,9 +1,14 @@
-# Runtime dependencies for the Streamlit app (used by deployment and CI).
-# scikit-learn / numpy / pandas are pinned to the versions the model in
-# models/best_model.joblib was trained and pickled with - loading a pickle with a
-# different scikit-learn version can warn or fail.
+# runtime dependencies for the app and CI
+# scikit-learn, numpy and pandas are pinned to the versions the model was pickled with
 streamlit==1.63.0
 scikit-learn==1.9.1
 numpy==2.5.3
 pandas==3.0.5
 joblib==1.6.0
+pydantic>=2.11
+
+# AI dietary guidance (the app still works without these, the section just says it is unavailable)
+crewai==1.15.28
+mcp==1.28.1
+# chromadb (imported by crewai) needs SQLite 3.35+, this is the fallback on older Linux images
+pysqlite3-binary==0.5.4.post2; sys_platform == "linux"

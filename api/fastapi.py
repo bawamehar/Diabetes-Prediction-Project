@@ -5,10 +5,9 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from .patientService import insert_patient
 
-# Bridge to src/ (flat modules, not a package) - same pattern Streamlit/ui.py uses.
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT / 'src'))
-from inference import InputValidationError, validate_features  # noqa: E402
+from inference import InputValidationError, validate_features
 
 
 app= FastAPI()
@@ -30,7 +29,6 @@ async def root():
 @app.post("/predict")
 async def predict(stlmdata: request_body):
     formData = stlmdata.model_dump()
-    # Same range/value checks the model was trained on (see src/inference.py)
     try:
         validate_features({
             "BMI": formData["bmi"], "Age": formData["age"], "GenHlth": formData["genhlth"],

@@ -1,13 +1,8 @@
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from feature_schema import FEATURES as UI_FEATURES
 
 print("preprocess.py loaded")
-
-# Features collected by the Streamlit UI / API. The model is trained on exactly
-# this set so there's no train/serve mismatch (previously the model was trained
-# on all 21 columns and the UI's missing 14 were filled with dataset medians,
-# which diluted the risk signal from the 7 features users actually enter).
-UI_FEATURES = ['HighBP', 'HighChol', 'BMI', 'GenHlth', 'Age', 'Income', 'Education']
 
 def preprocess_data(df):
     df['Diabetes_012'] =df['Diabetes_012'].replace({2:1})
@@ -40,10 +35,6 @@ def get_feature_names():
 
 
 def transform_user_input(user_df):
-    """
-    Reorder/align a single-row (or multi-row) DataFrame with the UI feature columns
-    to match the training column order. Scaling is handled internally by the saved
-    model pipeline (StandardScaler + classifier), not here.
-    """
+    """Put the user's columns in training order (scaling happens inside the saved pipeline)."""
     return user_df.reindex(columns=UI_FEATURES)
 

@@ -14,14 +14,12 @@ df = read_data()
 
 independent_vars, dependent_var = preprocess_data(df)
 
-# Hold out 10% as a test set that is never used for model selection or fitting.
+# Split into train/test
 X_train, X_test, y_train, y_test = train_test_split(
     independent_vars, dependent_var, test_size=0.1, random_state=25, stratify=dependent_var
 )
 
-# The dataset is ~84% non-diabetic / ~16% diabetic. Without correcting for this,
-# every model collapses toward always predicting the majority class (near-zero
-# recall). sample_weight='balanced' reweights the minority class during fitting.
+# classes are about 84/16, weight them or the models mostly predict "no diabetes"
 sample_weight_train = compute_sample_weight('balanced', y_train)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -46,16 +44,13 @@ model = models[best_model] # actucal model object
 
 
 def train_best_model(best_model=model):
-    # Bundle scaling + classifier into one pipeline so the exact scaling used at
-    # training time travels with the saved artifact - avoids the model being served
-    # with a scaler fit on different data than it was trained on.
+    # Fit best model on training data
     pipeline = Pipeline([('scaler', StandardScaler()), ('clf', best_model)])
     pipeline.fit(X_train, y_train, clf__sample_weight=sample_weight_train)
-    # Evaluate on the hold-out test set
+    # Evaluate on hold-out test set
     y_pred = pipeline.predict(X_test)
     y_proba = pipeline.predict_proba(X_test)[:, 1]
-    # Save the trained pipeline under a stable filename so downstream consumers
-    # (Streamlit UI, tests) don't need to know which algorithm won
+    # Save the trained model
     Model_loc.mkdir(parents=True, exist_ok=True)
     joblib.dump(pipeline, Model_loc / MODEL_FILENAME)
     print(f"Best model {best_model} trained and saved successfully. "

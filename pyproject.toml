@@ -13,10 +13,11 @@ dependencies = [
     "pandas>=2.3.1",
     "numpy",
     "joblib",
+    "crewai>=1.15",
+    "mcp>=1.28",
 ]
 
-# This is an application, not an installable package, so there is no [build-system].
-# Exact, tested versions for deployment are pinned in requirements.txt.
+# not an installable package, so no [build-system]; exact versions are pinned in requirements.txt
 
 [dependency-groups]
 dev = [

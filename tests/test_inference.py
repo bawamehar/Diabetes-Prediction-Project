@@ -28,7 +28,6 @@ def test_valid_input_returns_a_class():
 
 
 def test_model_distinguishes_high_and_low_risk_profiles():
-    # Guards against the model collapsing to a single class again.
     assert predict_risk_class(HIGH_RISK) == 1
     assert predict_risk_class(LOW_RISK) == 0
 

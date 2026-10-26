@@ -90,7 +90,10 @@ pytest
 
 The suite covers model loading, input validation (missing, malformed and out-of-range values), the
 Streamlit page (both result messages, no percentage shown, friendly errors, no data sent anywhere by
-default), and the optional API. API tests skip themselves if FastAPI is not installed.
+default), the MCP server (schemas, validation, a real stdio session), the CrewAI agent and the dietary
+section of the page, and the optional API. API tests skip themselves if FastAPI is not installed.
+The LLM is always replaced by a scripted stand-in, so no key or network is needed and nothing here
+proves a real model answers well.
 
 ## Retraining the model (manual)
 
@@ -119,6 +122,49 @@ $env:PATIENT_LOG_API_URL = "http://127.0.0.1:8000/predict"
 streamlit run Streamlit/ui.py
 ```
 
+## Optional: AI dietary guidance (CrewAI + MCP)
+
+After a result, the app can ask an LLM for general meal suggestions. It is off until you configure a model,
+it is shown separately from the risk check, and it is labelled as AI-generated general information.
+
+How it fits together:
+
+- `src/diet_agent.py` runs one CrewAI agent with one task (one LLM call) that returns a structured plan.
+- `src/mcp_server.py` is a local MCP server (stdio) with read-only tools. `get_feature_schema` explains the
+  model inputs and what the output means. `get_diabetes_prediction` calls the existing `inference.py` and
+  is only served with `--with-prediction`. The agent connects to it as a subprocess; nothing is exposed
+  on the network.
+- When the user shares their result, the agent is given it (plain words, no tool call needed) and only the
+  schema tool. The prediction tool is offered only if the result is missing.
+- `src/feature_schema.py` holds the answer labels and limits so the UI, the API and the MCP server agree.
+
+Configuration (environment variables, or Streamlit secrets on Community Cloud):
+
+| Variable | Purpose |
+|---|---|
+| `DIET_AGENT_MODEL` | Required. CrewAI model name, e.g. `openai/<model>`, `anthropic/<model>`, `gemini/<model>` |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` | The key for that provider (or set `DIET_AGENT_API_KEY`) |
+| `DIET_AGENT_BASE_URL` | Optional, for an OpenAI-compatible server (for example a local model) |
+| `DIET_AGENT_MAX_PER_SESSION` | Plans allowed per browser session, default 3 |
+
+```powershell
+$env:DIET_AGENT_MODEL = "openai/<model name>"
+$env:OPENAI_API_KEY = "<your key>"      # never commit keys
+streamlit run Streamlit/ui.py
+```
+
+Only `openai` works with the pinned install as is; other providers need their extra, for example
+`pip install "crewai[anthropic]"` or `"crewai[google-genai]"`, and the same added to `requirements.txt`
+for deployment. Without
+a model or key the section just says guidance isn't set up, and the rest of the app is unaffected.
+
+What is sent to the LLM provider: the preferences the user types and, only if they tick the box, their
+result plus blood pressure, cholesterol, BMI, general health and age group. Income and education are never
+sent. The app shows this before the button is pressed, stores nothing, and CrewAI telemetry is switched off.
+
+To try the MCP server on its own (for example from another MCP client), run
+`python src/mcp_server.py --with-prediction`.
+
 ## Deploying publicly
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the hosting comparison, privacy considerations, GitHub steps and a
@@ -129,6 +175,9 @@ step-by-step deployment guide.
 ```
 Streamlit/ui.py        the public app (questions, validation messages, result)
 src/inference.py       model loading, input validation, prediction
+src/feature_schema.py  feature limits, answer labels, output meaning (shared by app, API, MCP)
+src/diet_agent.py      CrewAI dietary guidance agent (optional)
+src/mcp_server.py      local MCP server exposing the schema and, optionally, the prediction
 src/preprocess.py      feature list and input alignment
 src/train.py           trains/compares candidate models and saves the best
 src/evaluate.py        cross-validation and the weighted model-selection score
@@ -143,7 +192,8 @@ tests/                 pytest suite
 ## Privacy
 
 The public app holds answers in memory only for your browser session while it computes the result. It
-does not write them to a database or file and does not log them. Hosting platforms may still keep ordinary web-server
+does not write them to a database or file and does not log them. If AI dietary guidance is enabled,
+what the user chooses to send goes to the configured LLM provider (see above). Hosting platforms may still keep ordinary web-server
 metadata (such as IP addresses and request times) under their own policies. Review
 [DEPLOYMENT.md](DEPLOYMENT.md#privacy-security-and-regulatory-notes) before opening the app to the public.
 

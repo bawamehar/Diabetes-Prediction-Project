@@ -1,7 +1,6 @@
 import pytest
 
-# The patient-logging API is optional and not part of the public deployment, so these
-# tests are skipped where its dependencies (see requirements-dev.txt) are not installed.
+# optional API, skipped when its dependencies are not installed
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 pytest.importorskip("psycopg2")

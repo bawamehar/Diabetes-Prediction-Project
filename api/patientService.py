@@ -2,8 +2,7 @@ import os
 
 import psycopg2
 
-# Connection settings come from environment variables - never hardcode credentials.
-# DB_PASSWORD has no default on purpose.
+# connection settings come from environment variables
 DB_params = {
     "dbname" : os.environ.get("DB_NAME", "postgres"),
     "user" : os.environ.get("DB_USER", "postgres"),
@@ -15,7 +14,6 @@ DB_params = {
 TABLE_NAME = "diabetic_patients"
 
 def insert_patient(stlmdata) -> bool:
-    """Insert one record. Returns True on success, False if the database was unavailable."""
     conn = None
     cursor = None
     try:
@@ -44,7 +42,7 @@ def insert_patient(stlmdata) -> bool:
         return True
 
     except Exception as e:
-        # Log only the error type: messages from the driver can echo connection details.
+        # error type only, driver messages can include connection details
         print("Database error:", type(e).__name__)
         return False
 

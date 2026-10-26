@@ -21,8 +21,7 @@ independent_vars, dependent_var = preprocess_data(df)
 
 
 def get_candidate_models():
-    """The set of models compared during training. Single source of truth so
-    train.py and predict.py always compare the same candidates."""
+    """Models compared in train.py and predict.py."""
     return {
         'Logistic Regression': LogisticRegression(max_iter=1000),
         'Decision Tree': DecisionTreeClassifier(random_state=52),
@@ -47,16 +46,11 @@ def classification_cv(model, X=independent_vars, y=dependent_var, cv_splits=5, s
     # Create stratified K-Fold cross-validator
     cv = StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=42)
 
-    # Scale inside the CV pipeline (not before it) so each fold's scaler is fit only on
-    # that fold's training data - fitting a scaler on the whole set beforehand leaks a
-    # bit of validation-fold information into the training statistics.
+    # scaler sits inside the pipeline so every fold fits its own
     pipeline = Pipeline([('scaler', StandardScaler()), ('clf', model)])
-
-    # sample_weight (e.g. from compute_sample_weight('balanced', y)) corrects for the
-    # dataset's ~84/16 class imbalance, which otherwise causes every model to collapse
-    # toward always predicting the majority "no diabetes" class. Routed to the 'clf'
-    # step specifically since StandardScaler doesn't take sample_weight.
     fit_params = {'clf__sample_weight': sample_weight} if sample_weight is not None else None
+
+    # Run cross-validation
     cv_results = cross_validate(pipeline, X, y, cv=cv, scoring=scoring, return_train_score=True,
                                  params=fit_params)
 
@@ -79,6 +73,7 @@ def classification_cv(model, X=independent_vars, y=dependent_var, cv_splits=5, s
 
     return df_metrics
 
+# think about fuction whihc one to take then use that model  to dumbh and predict
 def select_best_model(results, weight_accuracy=0.4, weight_recall=0.3, weight_rocauc=0.3):
     scores = []
 

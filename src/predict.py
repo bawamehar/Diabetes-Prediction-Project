@@ -35,8 +35,6 @@ def main():
 
     # 2. Train all models and evaluate using classification_cv
     models = get_candidate_models()
-    # Correct for the dataset's ~84/16 class imbalance so models don't collapse
-    # toward always predicting the majority "no diabetes" class.
     sample_weight = compute_sample_weight('balanced', y_train)
 
     results = {}
@@ -49,12 +47,9 @@ def main():
     # 3. Select best model using weighted metric
     best_model_name, scores_df = select_best_model(results)
     best_model = models[best_model_name]
-    # Bundle scaling + classifier so the artifact scales inputs consistently at
-    # inference time, regardless of what raw values are handed to it.
     pipeline = Pipeline([('scaler', StandardScaler()), ('clf', best_model)])
     pipeline.fit(X_train, y_train, clf__sample_weight=sample_weight)
-    # Save the best model under a stable filename so downstream consumers
-    # (Streamlit UI, tests) don't need to know which algorithm won
+    # Save the best model
     model_path = os.path.join(os.path.dirname(__file__), '../models/best_model.joblib')
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
     joblib.dump(pipeline, model_path)

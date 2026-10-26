@@ -14,12 +14,14 @@ change often, so re-check the linked pages before you rely on a specific number.
 | Backend / prediction API | None needed. The app loads the model and predicts in-process (`src/inference.py`). |
 | Model + preprocessing | One pickled scikit-learn `Pipeline` (scaler + classifier), `models/best_model.joblib` (~144 KB), loaded relative to the file, so any working directory works. |
 | Database | **Not required.** The optional `api/` + PostgreSQL logger is off by default and must stay off on a public deployment. |
-| Secrets / env vars | None required. (`PATIENT_LOG_API_URL` and `DB_*` exist only for the optional local logger.) |
-| Local files needed at runtime | Only `models/best_model.joblib`. The training CSV is not needed. |
-| Python / dependencies | Python 3.12; `requirements.txt` pins exact versions (NumPy 2.5.3 needs Python 3.12+). |
+| Secrets / env vars | None for the risk check. The optional AI dietary guidance needs `DIET_AGENT_MODEL` plus a provider API key (see section 5). `PATIENT_LOG_API_URL` and `DB_*` exist only for the optional local logger. |
+| Extra processes | The MCP server is not a hosted service: CrewAI starts `src/mcp_server.py` as a short-lived local subprocess (stdio) when a plan is requested. Nothing listens on the network. |
+| Local files needed at runtime | `models/best_model.joblib` and the `src/` modules. The training CSV is not needed. |
+| Python / dependencies | Python 3.12; `requirements.txt` pins the model-critical versions (NumPy 2.5.3 needs Python 3.12+) and `crewai`/`mcp`. CrewAI adds roughly 100 transitive packages that are not pinned. |
 | Health check | Streamlit's built-in `/_stcore/health` (returns `ok`). |
 
-So the public service is a single Streamlit process with no external dependencies.
+So the public service is a single Streamlit process. The AI guidance is the only part that talks to anything
+outside it (an LLM provider), and only when a model and key are configured and a visitor asks for a plan.
 
 ## 2. Hosting options compared
 
@@ -31,7 +33,7 @@ So the public service is a single Streamlit process with no external dependencie
 | Sleeps when idle | After 12 hours without traffic; anyone can wake it with one click | After 15 minutes; ~1 minute to wake | n/a |
 | Resources | Approx. 0.078 to 2 CPU cores, 690 MB to 2.7 GB RAM (documented figures date from Feb 2024) | 512 MB RAM, 0.1 CPU | 2 vCPU / 16 GB, but see "Cost" |
 | Config you must write | None (no start command, no port) | Build + start command, health check path | n/a |
-| Secrets | Settings UI (not needed here) | Environment settings (not needed here) | n/a |
+| Secrets | "Advanced settings" / app Secrets (only for AI guidance) | Environment settings (only for AI guidance) | n/a |
 | HTTPS | Yes, on `*.streamlit.app` | Yes, managed TLS | n/a |
 | Custom domain | Not documented; you can choose the `*.streamlit.app` subdomain name | Yes | n/a |
 | Public without viewers needing an account | Yes, once the app is set to public | Yes | n/a |
@@ -52,8 +54,10 @@ Its real downsides for this app: the app sleeps after 12 hours without a visit (
 Docker), supports custom domains with managed TLS, and could later also host the optional FastAPI service.
 Its free tier is more fragile for a public demo: 512 MB RAM / 0.1 CPU, the service spins down after 15
 minutes idle and takes about a minute to wake, 750 free instance hours per month, and Render's own docs say
-free services are not for production. The app used roughly 190 MB resident in local testing (Windows),
-so it should fit in 512 MB, but check Render's metrics after deploying.
+free services are not for production. The risk check alone used roughly 190 MB resident in local testing
+(Windows). With AI guidance enabled, the app process peaked at about 350 MB and about 420 MB including the
+MCP subprocess while writing one plan, so 512 MB leaves little headroom for several visitors: on Render's
+free tier leave AI guidance off (or expect restarts), or use a larger paid instance.
 
 **Why not Hugging Face Spaces.** Hugging Face's current docs offer Gradio, Docker and static SDKs; creating
 Gradio or Docker Spaces needs a paid plan (PRO, $9 per month for personal accounts), and Streamlit is not
@@ -110,6 +114,9 @@ Open <http://localhost:8501> and walk through this checklist:
 | 7 | Open "How to read this result, and its limits" | Explains the limits and why no percentage is shown |
 | 8 | Stop the server, delete nothing, restart | Works again (no database, no state) |
 | 9 | `git status` shows no `mlflow.db`, `mlruns/`, `*.log` files | Drift/retraining workflow is fully gone |
+| 10 | With `DIET_AGENT_MODEL` unset, get a result | An "AI dietary guidance" section says it is not set up; the risk check is unaffected |
+| 11 | With a model and key set, get a result and click **Generate dietary guidance** (box unticked, then ticked) | A boxed "AI-generated" plan with its own warning appears below the result. With a bad key or no credit you get a friendly message, never a traceback |
+| 12 | Look at the terminal during step 11 | Only CrewAI's "MCP Connection" panels (when the box is ticked); no answers, preferences or plan text |
 
 Sample inputs (all values are inside the model's training ranges):
 
@@ -130,8 +137,8 @@ Troubleshooting local runs:
 
 ## 4. GitHub: review, test, commit, push
 
-Your working tree contains all the changes from this work **and** earlier uncommitted work (the "always
-predicts non-diabetic" fix, LightGBM, the pipeline model). Review before committing.
+Your previous work is already committed (`6edf407`) and on `origin/main`. The commands below review and
+commit the changes made since then (CrewAI + MCP guidance, schema module, comment cleanup).
 
 ```powershell
 cd "F:\Diabetes Project\ClassificationHealthDiabetes"
@@ -168,7 +175,7 @@ git add README.md DEPLOYMENT.md .gitignore .streamlit requirements.txt requireme
 git status
 
 # Commit
-git commit -m "Remove drift/retraining workflow; make the Streamlit app safe and ready for public deployment"
+git commit -m "Add optional AI dietary guidance (CrewAI + local MCP server) and tidy comments"
 ```
 
 Push (the repository's current branch is `main`, tracking `origin/main`):
@@ -225,7 +232,16 @@ If you are unsure, keep the repository private and deploy from it.
    - Main file path: `Streamlit/ui.py` (capital S: Linux paths are case-sensitive)
    - App URL: choose a subdomain (6 to 63 characters), e.g. `diabetes-risk-check`
 4. **Advanced settings.** Python version: **3.12**. This cannot be changed after deployment (you would
-   have to delete and redeploy). Secrets: leave empty. Do not add `PATIENT_LOG_API_URL`.
+   have to delete and redeploy). Do not add `PATIENT_LOG_API_URL`. Secrets: leave empty to deploy the risk
+   check only. To enable the AI dietary guidance, paste this (TOML) and use a spending-capped key:
+
+   ```toml
+   DIET_AGENT_MODEL = "openai/<model name>"
+   OPENAI_API_KEY = "<your key>"
+   ```
+
+   These become environment variables. Other providers need their CrewAI extra added to
+   `requirements.txt` (for example `crewai[anthropic]`, `crewai[google-genai]`) and their own key variable.
 5. **Deploy.** Click **Deploy**. The first build installs `requirements.txt` and usually takes a few minutes.
    Logs appear on the right side of the app page (visible only to people with write access to the repo).
 6. **Make it public.** If the repository is private the app is private by default: open the app's
@@ -284,6 +300,8 @@ Open the URL in a private/incognito window, signed out of GitHub and the hosting
 - [ ] Works on a phone-sized window.
 - [ ] Hosting logs show startup lines only: no health answers, no stack traces.
 - [ ] Reloading and resubmitting works; nothing from a previous visitor appears.
+- [ ] AI guidance: without secrets the section says it is not set up. With secrets, one test plan appears in
+      its own box with the AI-generated warning, and your provider dashboard shows exactly one request.
 - [ ] (Free tiers) Come back after the idle period and confirm it wakes up.
 
 ## 8. Troubleshooting deployments
@@ -298,6 +316,11 @@ Open the URL in a private/incognito window, signed out of GitHub and the hosting
 | Render: "No open ports detected" | The start command must use `--server.address 0.0.0.0 --server.port $PORT`. |
 | Render: killed / out of memory | Free tier is 512 MB. Restart, or use Community Cloud (larger memory allowance). |
 | Database connection errors | The app does not use a database. Make sure `PATIENT_LOG_API_URL` is not set in the hosting environment. |
+| Build is slow or fails installing `crewai` dependencies | CrewAI pulls about 100 packages (chromadb, onnxruntime, openai...). Retry the build; if it keeps failing, delete the `crewai`, `mcp` and `pysqlite3-binary` lines from `requirements.txt` (keep `pydantic`) and the app deploys without AI guidance. |
+| Logs show `unsupported version of sqlite3` | chromadb (imported by crewai) needs SQLite 3.35+. `pysqlite3-binary` in `requirements.txt` is the fallback and is applied automatically on Linux; confirm it installed. |
+| AI section says "not set up" / "not installed" | `DIET_AGENT_MODEL` or the provider key is missing from the secrets, or `crewai` was not installed. The log has one line naming what is missing. |
+| AI section says the plan "could not be generated" | The provider rejected the call (bad key, no credit, rate limit, unknown model name) or timed out. Check the provider dashboard; the log shows only the error type. |
+| Logs show an MCP connection timeout | CrewAI waits 10 s for the local MCP server to start. Schema-only mode starts in about 1.5 s here; `--with-prediction` loads the model first and can be slower. The app never uses that mode. |
 | App "asleep" | Expected on free tiers; visitors wake it (Community Cloud) or the first request does (Render). |
 
 ## 9. Costs and free-tier limits
@@ -309,15 +332,25 @@ Open the URL in a private/incognito window, signed out of GitHub and the hosting
   bandwidth and build-minute allowances apply (see your dashboard's billing page). Paid plans: see
   <https://render.com/pricing>.
 - **Hugging Face Spaces:** Streamlit/Docker apps need a paid plan (PRO is $9 per month).
+- **LLM usage (only if AI guidance is enabled):** billed by your provider, not the host. One plan is about
+  1,000 tokens in and 500 out (the stub run sent a ~4,000-character request), so at most a few thousand
+  tokens per click; the app allows 3 plans per browser session by default (`DIET_AGENT_MAX_PER_SESSION`).
+  That limit is per session, so set a monthly spending cap on the provider key as the real safeguard.
 - If traffic grows, the practical next step is a paid always-on instance (for example a paid Render web
-  service); the app itself is lightweight.
+  service); the risk check itself is lightweight.
 
 ## 10. Privacy, security and regulatory notes
 
 What happens to a visitor's answers: they travel from the browser to the host over HTTPS, are held in the
 Streamlit session in server memory, produce a result, and go nowhere else. The app code writes them to no
 database or file and logs nothing about them (automated tests assert submitted values never reach the logs
-or any outbound request). Hosting platforms still keep ordinary web metadata such as IP addresses and
+or any outbound request). The one exception is AI dietary guidance, which you enable deliberately: when a
+visitor clicks Generate, their typed preferences (and, only if they tick the box, their result plus blood
+pressure, cholesterol, BMI, general health and age group; never income or education) are sent to the LLM
+provider you configured. The page says so before the button is pressed, the app stores none of it, CrewAI's
+telemetry and tracing are forced off, and the MCP server runs only as a local subprocess. The provider's
+own retention and training policies then apply, so choose one whose terms you have read, and mention it in
+your privacy notice. Hosting platforms still keep ordinary web metadata such as IP addresses and
 request times under their own terms: read the privacy policy of whichever host you pick. Usage telemetry
 from Streamlit itself is disabled in `.streamlit/config.toml`.
 

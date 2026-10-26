@@ -1,7 +1,4 @@
-"""Model loading, input validation and prediction, shared by the Streamlit app and the API.
-
-Nothing in this module stores or logs the values a user submits.
-"""
+"""Model loading, input validation and prediction for the Streamlit app, the API and the MCP server."""
 import logging
 import math
 from collections.abc import Mapping
@@ -11,19 +8,12 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
+from feature_schema import BINARY_FEATURES, BMI_RANGE, CATEGORY_RANGES
 from preprocess import UI_FEATURES, transform_user_input
 
 logger = logging.getLogger(__name__)
 
-# Resolved relative to this file so it works from any working directory.
 MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "best_model.joblib"
-
-# Allowed values are exactly the values present in the training data
-# (Data/data/diabetes.csv): two 0/1 flags, BMI between 12 and 98, and four
-# whole-number category codes.
-BINARY_FEATURES = ("HighBP", "HighChol")
-CATEGORY_RANGES = {"GenHlth": (1, 5), "Age": (1, 13), "Income": (1, 8), "Education": (1, 6)}
-BMI_RANGE = (12.0, 98.0)
 
 
 class InputValidationError(ValueError):
@@ -98,12 +88,10 @@ def load_model():
 
 
 def predict_risk_class(features) -> int:
-    """Validate `features` and return the model's class: 1 = higher risk, 0 = lower risk.
+    """Validate `features` and return the class: 1 = higher-risk pattern, 0 = lower-risk pattern.
 
-    The model was trained on survey responses where class 1 means the respondent
-    reported prediabetes or diabetes. The class comes from the model's default decision
-    rule; no probability is returned because the model is trained with class-balanced
-    weights, so its probabilities do not reflect an individual's real-world likelihood.
+    No probability is returned: the model is trained with class-balanced weights, so its
+    scores are not real-world likelihoods.
     """
     clean = validate_features(features)
     model = load_model()
