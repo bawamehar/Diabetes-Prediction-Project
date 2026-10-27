@@ -115,7 +115,7 @@ Open <http://localhost:8501> and walk through this checklist:
 | 8 | Stop the server, delete nothing, restart | Works again (no database, no state). The terminal shows `Serving diabetes-risk-classifier version 2` once, after the first result |
 | 9 | `git status` shows no `mlflow_store/`, `mlruns/`, `*.db`, `*.log` files (the local MLflow store is git-ignored) | No drift or retraining code; MLflow is only a development tool |
 | 10 | With `DIET_AGENT_MODEL` unset, get a result | An "AI dietary guidance" section says it is not set up; the risk check is unaffected |
-| 11 | With a model and key set, get a result and click **Generate dietary guidance** (box unticked, then ticked) | A boxed plan headed "(AI-generated)" appears below the result. With a bad key or no credit you get a friendly message, never a traceback |
+| 11 | With a model and key set, get a result and click **Generate dietary guidance** (box unticked, then ticked) | A boxed plan headed "General dietary guidance" appears below the result. With a bad key or no credit you get a friendly message, never a traceback |
 | 12 | Look at the terminal during step 11 | Only CrewAI's "MCP Connection" panels (when the box is ticked); no answers, preferences or plan text |
 
 Sample inputs (all values are inside the model's training ranges):
@@ -310,7 +310,7 @@ Open the URL in a private/incognito window, signed out of GitHub and the hosting
 - [ ] Hosting logs show startup lines only: no health answers, no stack traces.
 - [ ] Reloading and resubmitting works; nothing from a previous visitor appears.
 - [ ] AI guidance: without secrets the section says it is not set up. With secrets, one test plan appears in
-      its own box headed "(AI-generated)", and your provider dashboard shows exactly one request.
+      its own box headed "General dietary guidance", and your provider dashboard shows exactly one request.
 - [ ] (Free tiers) Come back after the idle period and confirm it wakes up.
 
 ## 8. Troubleshooting deployments

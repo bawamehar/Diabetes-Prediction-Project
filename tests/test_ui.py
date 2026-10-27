@@ -238,7 +238,7 @@ def test_plan_without_sharing_sends_no_health_answers(diet_configured, monkeypat
     assert not at.exception
     assert len(calls) == 1 and calls[0][1] == {}
     text = page_text(at)
-    assert "General dietary guidance (AI-generated)" in text
+    assert "General dietary guidance" in text
     assert "Oats with berries" in text
 
 
@@ -247,7 +247,7 @@ def test_the_ai_notice_and_provider_caption_are_not_repeated(diet_configured, mo
     at = click(submit_high_risk(new_app()), "Generate dietary guidance")
     assert not at.exception
     everything = page_text(at) + " " + " ".join(caption.value for caption in at.caption)
-    assert "General dietary guidance (AI-generated)" in everything
+    assert "General dietary guidance" in everything
     assert "This was written by an AI model" not in everything
     assert "sent to the AI provider" not in everything
 
@@ -256,7 +256,7 @@ def test_plan_is_shown_separately_from_the_prediction(diet_configured, monkeypat
     patch_generator(monkeypatch)
     at = click(submit_high_risk(new_app()), "Generate dietary guidance")
     subheaders = [subheader.value for subheader in at.subheader]
-    assert subheaders.index("Your result") < subheaders.index("Optional: AI dietary guidance")
+    assert subheaders.index("Your result") < subheaders.index("AI dietary guidance")
     assert "Higher-risk pattern" in alert_text(at)
 
 

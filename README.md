@@ -6,6 +6,8 @@ An educational web app that compares a person's answers to seven simple question
 large public US health survey, and reports whether those answers look more like respondents who
 reported prediabetes or diabetes ("higher-risk pattern") or not ("lower-risk pattern").
 
+Link: [Diabetes Risk Prediction & Diet Plan](https://patient-diabetes-prediction.streamlit.app/)
+
 ## What the app asks
 
 The model uses exactly seven inputs. The numeric codes are what the model was trained on; the app shows
@@ -160,7 +162,7 @@ MLflow is for development only: it is in `requirements-dev.txt` and the deployed
 ## AI dietary guidance (CrewAI + MCP)
 
 After a result, the app can ask an LLM for general meal suggestions. It is off until you configure a model,
-it is shown separately from the risk check, and it is labelled as AI-generated general information.
+it is shown separately from the risk check, and it is labelled as AI dietary guidance.
 
 How it fits together:
 

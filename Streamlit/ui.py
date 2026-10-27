@@ -106,7 +106,7 @@ def _plain(text):
 
 def show_plan(plan):
     with st.container(border=True):
-        st.markdown("#### General dietary guidance (AI-generated)")
+        st.markdown("#### General dietary guidance")
         st.markdown(_plain(plan.summary))
         for meal in plan.meals:
             st.markdown(f"**{_plain(meal.meal)}**")
@@ -126,7 +126,7 @@ def show_plan(plan):
 
 def show_diet_section(result):
     st.divider()
-    st.subheader("Optional: AI dietary guidance")
+    st.subheader("AI dietary guidance")
     st.caption("General healthy-eating ideas written by an AI model. This is separate from the risk check above.")
 
     problem = diet_agent.config_problem()
