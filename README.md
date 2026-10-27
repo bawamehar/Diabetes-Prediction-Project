@@ -6,10 +6,6 @@ An educational web app that compares a person's answers to seven simple question
 large public US health survey, and reports whether those answers look more like respondents who
 reported prediabetes or diabetes ("higher-risk pattern") or not ("lower-risk pattern").
 
-> **For educational and informational purposes only.** This project is not a medical device, does not
-> diagnose diabetes, and is not a substitute for professional medical advice, diagnosis or treatment.
-> Anyone with health concerns should talk to a qualified healthcare professional.
-
 ## What the app asks
 
 The model uses exactly seven inputs. The numeric codes are what the model was trained on; the app shows
@@ -160,21 +156,8 @@ MLflow is for development only: it is in `requirements-dev.txt` and the deployed
   way the current model could honestly be version 2. On a new machine, run the same command to rebuild the
   local registry, or ignore it if you only need the app.
 
-## Optional: patient-logging API (local only, off by default)
 
-`api/` contains a small FastAPI service that can store submitted answers in a local PostgreSQL table.
-**The public app does not use it** and does not store anyone's answers. To try it locally:
-
-```powershell
-$env:DB_HOST = "localhost"; $env:DB_NAME = "postgres"; $env:DB_USER = "postgres"
-$env:DB_PASSWORD = "<your password>"     # never commit real credentials
-uvicorn api.fastapi:app --port 8000
-# in another terminal, opt the app in:
-$env:PATIENT_LOG_API_URL = "http://127.0.0.1:8000/predict"
-streamlit run Streamlit/ui.py
-```
-
-## Optional: AI dietary guidance (CrewAI + MCP)
+## AI dietary guidance (CrewAI + MCP)
 
 After a result, the app can ask an LLM for general meal suggestions. It is off until you configure a model,
 it is shown separately from the risk check, and it is labelled as AI-generated general information.
@@ -218,32 +201,6 @@ DIET_AGENT_MODEL = "openai/<model name>"
 OPENAI_API_KEY = "<your key>"
 ```
 
-Other hosts (Render, Hugging Face) use their own environment-variable or secrets settings with the same
-names, not TOML. A local `.streamlit/secrets.toml` also works but is git-ignored; nothing needs a `.env` file.
-Check which model names your provider currently offers: some are deprecated and get shut down.
-
-If a plan cannot be written, the page shows a short message and the server log has one line saying which
-step failed (starting the MCP tool, or the provider call with its HTTP status and error code, never the
-request text or the key).
-
-Only `openai` works with the pinned install as is; other providers need their extra, for example
-`pip install "crewai[anthropic]"` or `"crewai[google-genai]"`, and the same added to `requirements.txt`
-for deployment. Without
-a model or key the section just says guidance isn't set up, and the rest of the app is unaffected.
-
-What is sent to the LLM provider: the preferences the user types and, only if they tick the box, their
-result plus blood pressure, cholesterol, BMI, general health and age group. Income and education are never
-sent. The sharing checkbox lists exactly which answers go; the page does not otherwise mention the provider,
-so say so in your own privacy notice. The app stores nothing, and CrewAI telemetry is switched off.
-
-To try the MCP server on its own (for example from another MCP client), run
-`python src/mcp_server.py --with-prediction`.
-
-## Deploying publicly
-
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the hosting comparison, privacy considerations, GitHub steps and a
-step-by-step deployment guide.
-
 ## Project layout
 
 ```
@@ -267,21 +224,6 @@ api/                   optional local patient-logging API (not used by the publi
 tests/                 pytest suite
 .streamlit/config.toml hides tracebacks, disables usage telemetry
 ```
-
-## Privacy
-
-The public app holds answers in memory only for your browser session while it computes the result. It
-does not write them to a database or file and does not log them. If AI dietary guidance is enabled,
-what the user chooses to send goes to the configured LLM provider (see above). Hosting platforms may still keep ordinary web-server
-metadata (such as IP addresses and request times) under their own policies. Review
-[DEPLOYMENT.md](DEPLOYMENT.md#privacy-security-and-regulatory-notes) before opening the app to the public.
-
-## Limitations
-
-- Trained on 2015 self-reported US survey data; it may not represent everyone equally.
-- Only seven inputs. Family history, diet, activity, symptoms and lab tests are not considered.
-- Tuned to catch most people who report diabetes, so it produces many false alarms and still misses some.
-- It shows a screening-style pattern, not a diagnosis. Only a clinical test can diagnose diabetes.
 
 ## Data source
 
