@@ -107,12 +107,6 @@ def _plain(text):
 def show_plan(plan):
     with st.container(border=True):
         st.markdown("#### General dietary guidance (AI-generated)")
-        st.warning(
-            "This was written by an AI model. It is general information, not individualized medical "
-            "care, and it does not treat, cure or reverse diabetes. Do not change any medication or "
-            "treatment because of it. Please talk to a qualified healthcare professional or registered "
-            "dietitian about what is right for you."
-        )
         st.markdown(_plain(plan.summary))
         for meal in plan.meals:
             st.markdown(f"**{_plain(meal.meal)}**")
@@ -153,11 +147,7 @@ def show_diet_section(result):
             "Also share my risk-check result and answers (blood pressure, cholesterol, BMI, general health, "
             "age group) so the plan can be tailored."
         )
-        st.caption(
-            f"Your preferences (and your answers if ticked) are sent to the AI provider "
-            f"({diet_agent.provider_name()}) to write the plan."
-        )
-        generate = st.form_submit_button("Generate dietary guidance")
+        generate =st.form_submit_button("Generate dietary guidance")
 
     if generate:
         if st.session_state.get("plans_made", 0) >= MAX_PLANS_PER_SESSION:

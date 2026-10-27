@@ -11,10 +11,10 @@ from sklearn.preprocessing import StandardScaler
 
 pytest.importorskip("mlflow")
 
+import mlflow
 from mlflow.exceptions import MlflowException
 
 import inference
-import mlflow
 import model_card
 import registry
 import tracking

@@ -223,11 +223,13 @@ def test_crewai_is_not_warmed_up_when_guidance_is_not_set_up(monkeypatch):
     assert not started
 
 
-def test_dietary_form_discloses_what_is_sent(diet_configured):
+def test_dietary_form_says_which_answers_can_be_shared(diet_configured):
     at = submit_high_risk(new_app())
     assert not at.exception
     assert at.text_input
-    assert any("AI provider (openai)" in caption.value for caption in at.caption)
+    label = at.checkbox[0].label
+    assert "blood pressure, cholesterol, BMI, general health, age group" in label
+    assert "income" not in label.lower() and "education" not in label.lower()
 
 
 def test_plan_without_sharing_sends_no_health_answers(diet_configured, monkeypatch):
@@ -238,8 +240,16 @@ def test_plan_without_sharing_sends_no_health_answers(diet_configured, monkeypat
     text = page_text(at)
     assert "General dietary guidance (AI-generated)" in text
     assert "Oats with berries" in text
-    assert "not individualized medical care" in text
-    assert "qualified healthcare professional or registered dietitian" in text
+
+
+def test_the_ai_notice_and_provider_caption_are_not_repeated(diet_configured, monkeypatch):
+    patch_generator(monkeypatch)
+    at = click(submit_high_risk(new_app()), "Generate dietary guidance")
+    assert not at.exception
+    everything = page_text(at) + " " + " ".join(caption.value for caption in at.caption)
+    assert "General dietary guidance (AI-generated)" in everything
+    assert "This was written by an AI model" not in everything
+    assert "sent to the AI provider" not in everything
 
 
 def test_plan_is_shown_separately_from_the_prediction(diet_configured, monkeypatch):

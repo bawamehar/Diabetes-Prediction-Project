@@ -115,7 +115,7 @@ Open <http://localhost:8501> and walk through this checklist:
 | 8 | Stop the server, delete nothing, restart | Works again (no database, no state). The terminal shows `Serving diabetes-risk-classifier version 2` once, after the first result |
 | 9 | `git status` shows no `mlflow_store/`, `mlruns/`, `*.db`, `*.log` files (the local MLflow store is git-ignored) | No drift or retraining code; MLflow is only a development tool |
 | 10 | With `DIET_AGENT_MODEL` unset, get a result | An "AI dietary guidance" section says it is not set up; the risk check is unaffected |
-| 11 | With a model and key set, get a result and click **Generate dietary guidance** (box unticked, then ticked) | A boxed "AI-generated" plan with its own warning appears below the result. With a bad key or no credit you get a friendly message, never a traceback |
+| 11 | With a model and key set, get a result and click **Generate dietary guidance** (box unticked, then ticked) | A boxed plan headed "(AI-generated)" appears below the result. With a bad key or no credit you get a friendly message, never a traceback |
 | 12 | Look at the terminal during step 11 | Only CrewAI's "MCP Connection" panels (when the box is ticked); no answers, preferences or plan text |
 
 Sample inputs (all values are inside the model's training ranges):
@@ -256,7 +256,11 @@ If you are unsure, keep the repository private and deploy from it.
 7. **Validate** with the public-URL checklist in section 7.
 
 Updating: push to the deployed branch; most changes appear almost immediately, and changing
-`requirements.txt` triggers a longer reinstall. Use **Manage app -> Reboot app** if it misbehaves.
+`requirements.txt` triggers a longer reinstall. **After any push that changes files under `src/` or
+`models/`, also use Manage app -> Reboot app.** Streamlit only watches modules inside the entrypoint's
+own folder (`Streamlit/`), so the running process keeps the old `src/` modules in memory and the new
+`ui.py` can call functions they don't have yet (seen as `AttributeError: module 'diet_agent' has no
+attribute 'start_warm_up'`).
 Updates from GitHub are rate-limited to five per minute.
 
 Removing: open the app -> **Manage app** -> overflow menu -> **Delete app** (or use the overflow menu next
@@ -306,7 +310,7 @@ Open the URL in a private/incognito window, signed out of GitHub and the hosting
 - [ ] Hosting logs show startup lines only: no health answers, no stack traces.
 - [ ] Reloading and resubmitting works; nothing from a previous visitor appears.
 - [ ] AI guidance: without secrets the section says it is not set up. With secrets, one test plan appears in
-      its own box with the AI-generated warning, and your provider dashboard shows exactly one request.
+      its own box headed "(AI-generated)", and your provider dashboard shows exactly one request.
 - [ ] (Free tiers) Come back after the idle period and confirm it wakes up.
 
 ## 8. Troubleshooting deployments
@@ -324,6 +328,7 @@ Open the URL in a private/incognito window, signed out of GitHub and the hosting
 | Build is slow or fails installing `crewai` dependencies | CrewAI pulls about 100 packages (chromadb, onnxruntime, openai...). Retry the build; if it keeps failing, delete the `crewai`, `mcp` and `pysqlite3-binary` lines from `requirements.txt` (keep `pydantic`) and the app deploys without AI guidance. |
 | Logs show `unsupported version of sqlite3` | chromadb (imported by crewai) needs SQLite 3.35+. `pysqlite3-binary` in `requirements.txt` is the fallback and is applied automatically on Linux; confirm it installed. |
 | AI section says "not set up" / "not installed" | `DIET_AGENT_MODEL` or the provider key is missing from the secrets, or `crewai` was not installed. The log has one line naming what is missing. |
+| `AttributeError: module '...' has no attribute '...'` right after an update | The app process still holds the old `src/` module. **Manage app -> Reboot app**. If it persists after the reboot, the new `src/` file was not committed (`git ls-files src`, `git status`). |
 | AI section says "not working on this server right now" | The provider answered 400, 401, 403 or 404: wrong or revoked key, a model name the account cannot use or that was retired, or a parameter the model rejects. Open **Manage app** to see the log line `AI provider call failed: ... (HTTP status N, provider code ..., parameter ...)`; the status and code say which. |
 | AI section says the service is busy / over its usage limit | HTTP 429: rate limit or no credit left on the provider account. |
 | AI section says the tool that reads the risk model could not be started | The local MCP subprocess failed to start in time (only when "share my answers" is ticked). Plans without sharing still work. |
@@ -385,10 +390,11 @@ database or file and logs nothing about them (automated tests assert submitted v
 or any outbound request). The one exception is AI dietary guidance, which you enable deliberately: when a
 visitor clicks Generate, their typed preferences (and, only if they tick the box, their result plus blood
 pressure, cholesterol, BMI, general health and age group; never income or education) are sent to the LLM
-provider you configured. The page says so before the button is pressed, the app stores none of it, CrewAI's
-telemetry and tracing are forced off, and the MCP server runs only as a local subprocess. The provider's
-own retention and training policies then apply, so choose one whose terms you have read, and mention it in
-your privacy notice. Hosting platforms still keep ordinary web metadata such as IP addresses and
+provider you configured. The sharing checkbox lists exactly which answers go; the page itself does not
+say that typed preferences are sent to the provider, so say so in your privacy notice. The app stores
+none of it, CrewAI's telemetry and tracing are forced off, and the MCP server runs only as a local
+subprocess. The provider's own retention and training policies then apply, so choose one whose terms you
+have read. Hosting platforms still keep ordinary web metadata such as IP addresses and
 request times under their own terms: read the privacy policy of whichever host you pick. Usage telemetry
 from Streamlit itself is disabled in `.streamlit/config.toml`.
 

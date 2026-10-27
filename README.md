@@ -130,6 +130,19 @@ MLflow is for development only: it is in `requirements-dev.txt` and the deployed
 
   `promote` sets the `champion` alias, puts that version's original `.joblib` file at
   `models/best_model.joblib` and rewrites `models/model_card.json`. Commit both to deploy it.
+- **Looking at it in the browser.** From the project folder:
+
+  ```powershell
+  .\.venv\Scripts\python.exe -m mlflow ui --backend-store-uri sqlite:///mlflow_store/mlflow.db
+  ```
+
+  Use the project's own interpreter as shown (or activate the venv first). A bare `mlflow` command can
+  start another install, for example Anaconda's older MLflow, which fails with
+  `Can't locate revision identified by 'b7e2c1a4d9f3'` because the store was created by a newer version;
+  that failure changes nothing in the store. Open <http://127.0.0.1:5000> (the first start can take a
+  minute) and click **Model training**: *Experiments* lists the runs (parameters, metrics, artifacts) and
+  *Model registry* lists `diabetes-risk-classifier` with its versions and the `champion` alias. Stop it
+  with Ctrl+C. It only reads the local store.
 - **How the app knows its version.** `models/model_card.json` names the registered model, version and
   SHA-256 of `models/best_model.joblib`. `src/inference.py` checks the file against it when it loads the
   model and also checks the feature order, so a file that was swapped by hand or by `train.py` is refused
@@ -220,7 +233,8 @@ a model or key the section just says guidance isn't set up, and the rest of the 
 
 What is sent to the LLM provider: the preferences the user types and, only if they tick the box, their
 result plus blood pressure, cholesterol, BMI, general health and age group. Income and education are never
-sent. The app shows this before the button is pressed, stores nothing, and CrewAI telemetry is switched off.
+sent. The sharing checkbox lists exactly which answers go; the page does not otherwise mention the provider,
+so say so in your own privacy notice. The app stores nothing, and CrewAI telemetry is switched off.
 
 To try the MCP server on its own (for example from another MCP client), run
 `python src/mcp_server.py --with-prediction`.
