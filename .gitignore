@@ -4,6 +4,10 @@ __pycache__/
 .venv/
 .pytest_cache/
 
+# Local MLflow tracking store (SQLite database and artifacts); the model card in models/ is what gets committed
+/mlflow_store/
+/mlruns/
+
 # Secrets and local configuration - never commit these
 .env
 .env.*

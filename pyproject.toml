@@ -23,6 +23,7 @@ dependencies = [
 dev = [
     "xgboost>=2.1.4",
     "lightgbm>=4.7.0",
+    "mlflow>=3.16",
     "fastapi",
     "uvicorn",
     "psycopg2-binary",

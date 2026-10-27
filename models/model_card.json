@@ -1,0 +1,31 @@
+{
+  "registered_model": "diabetes-risk-classifier",
+  "version": 2,
+  "alias": "champion",
+  "sha256": "63d2a7d0918d70210fb280a9ec06057b49be299e38c55381131b997202edf747",
+  "algorithm": "GradientBoostingClassifier",
+  "features": [
+    "HighBP",
+    "HighChol",
+    "BMI",
+    "GenHlth",
+    "Age",
+    "Income",
+    "Education"
+  ],
+  "training_rows": 190265,
+  "holdout_rows": 25368,
+  "metrics": {
+    "accuracy": 0.719016,
+    "precision": 0.334251,
+    "recall": 0.789395,
+    "f1": 0.469643,
+    "roc_auc": 0.824538,
+    "true_negatives": 15084,
+    "false_positives": 6286,
+    "false_negatives": 842,
+    "true_positives": 3156
+  },
+  "mlflow_run_id": "a32802157cc5434881631b4a4b4b29a4",
+  "recorded_on": "2026-10-25"
+}

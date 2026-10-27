@@ -58,13 +58,25 @@ def diet_configured(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
 
-def test_page_loads_with_disclaimer_and_no_result():
+def test_page_loads_with_the_educational_line_and_no_result():
     at = new_app()
     assert not at.exception
-    text = alert_text(at)
-    assert "educational and informational purposes only" in text
-    assert "not** a medical diagnosis" in text
+    assert any("An educational demo built on a public US health survey" in caption.value for caption in at.caption)
     assert "Your result" not in [subheader.value for subheader in at.subheader]
+
+
+def test_repeated_disclaimer_sections_are_gone():
+    at = submit_high_risk(new_app())
+    assert not at.exception
+    assert not at.expander
+    everything = page_text(at) + " " + " ".join(caption.value for caption in at.caption)
+    for removed in (
+        "For educational and informational purposes only",
+        "This app does not save them",
+        "This is an educational demo, not medical advice",
+        "How to read this result",
+    ):
+        assert removed not in everything
 
 
 def test_unanswered_questions_give_a_friendly_error():
@@ -194,6 +206,21 @@ def test_dietary_guidance_explains_when_it_is_not_set_up():
     assert not at.exception
     assert "not set up on this server" in alert_text(at)
     assert not at.text_input
+
+
+def test_crewai_is_only_warmed_up_when_the_ai_form_is_shown(diet_configured, monkeypatch):
+    started = []
+    monkeypatch.setattr(diet_agent, "start_warm_up", lambda: started.append(1))
+    assert not started
+    submit_high_risk(new_app())
+    assert started
+
+
+def test_crewai_is_not_warmed_up_when_guidance_is_not_set_up(monkeypatch):
+    started = []
+    monkeypatch.setattr(diet_agent, "start_warm_up", lambda: started.append(1))
+    submit_high_risk(new_app())
+    assert not started
 
 
 def test_dietary_form_discloses_what_is_sent(diet_configured):

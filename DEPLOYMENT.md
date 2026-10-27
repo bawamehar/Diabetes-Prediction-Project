@@ -105,15 +105,15 @@ Open <http://localhost:8501> and walk through this checklist:
 
 | # | Check | Expected |
 |---|---|---|
-| 1 | Page loads, nothing in the terminal except startup lines | Title, yellow disclaimer, form |
+| 1 | Page loads, nothing in the terminal except startup lines | Title, the one-line "educational demo" caption, form |
 | 2 | Click **Show result** with nothing filled in | "Please answer every question to see a result. Missing: ..." (no traceback) |
 | 3 | Sample A (below) | "Higher-risk pattern" message, no percentage |
 | 4 | Sample B (below) | "Lower-risk pattern" message saying it does not rule out diabetes |
 | 5 | Type `200` (or `5`) into BMI and submit | The widget does not accept values outside 12 to 98, so the app lists BMI as unanswered; nothing crashes |
 | 6 | Look at the terminal | No submitted values appear in the logs |
-| 7 | Open "How to read this result, and its limits" | Explains the limits and why no percentage is shown |
-| 8 | Stop the server, delete nothing, restart | Works again (no database, no state) |
-| 9 | `git status` shows no `mlflow.db`, `mlruns/`, `*.log` files | Drift/retraining workflow is fully gone |
+| 7 | Look for repeated disclaimer banners and the "How to read this result" expander | None: only the caption under the title remains |
+| 8 | Stop the server, delete nothing, restart | Works again (no database, no state). The terminal shows `Serving diabetes-risk-classifier version 2` once, after the first result |
+| 9 | `git status` shows no `mlflow_store/`, `mlruns/`, `*.db`, `*.log` files (the local MLflow store is git-ignored) | No drift or retraining code; MLflow is only a development tool |
 | 10 | With `DIET_AGENT_MODEL` unset, get a result | An "AI dietary guidance" section says it is not set up; the risk check is unaffected |
 | 11 | With a model and key set, get a result and click **Generate dietary guidance** (box unticked, then ticked) | A boxed "AI-generated" plan with its own warning appears below the result. With a bad key or no credit you get a friendly message, never a traceback |
 | 12 | Look at the terminal during step 11 | Only CrewAI's "MCP Connection" panels (when the box is ticked); no answers, preferences or plan text |
@@ -137,8 +137,11 @@ Troubleshooting local runs:
 
 ## 4. GitHub: review, test, commit, push
 
-Your previous work is already committed (`6edf407`) and on `origin/main`. The commands below review and
-commit the changes made since then (CrewAI + MCP guidance, schema module, comment cleanup).
+Your CrewAI + MCP work is already committed (`c91b42d`) and on `origin/main`. The commands below review and
+commit the changes made since then: MLflow tracking and the model registry (`src/tracking.py`,
+`src/registry.py`, `src/model_card.py`, `models/model_card.json`), the diet-plan error handling, and the UI
+cleanup. Make sure `models/model_card.json` is committed together with `models/best_model.joblib`: the app
+refuses a model file that does not match its card.
 
 ```powershell
 cd "F:\Diabetes Project\ClassificationHealthDiabetes"
@@ -175,7 +178,7 @@ git add README.md DEPLOYMENT.md .gitignore .streamlit requirements.txt requireme
 git status
 
 # Commit
-git commit -m "Add optional AI dietary guidance (CrewAI + local MCP server) and tidy comments"
+git commit -m "Add MLflow tracking and model registry, fix AI plan errors, remove repeated disclaimers"
 ```
 
 Push (the repository's current branch is `main`, tracking `origin/main`):
@@ -240,7 +243,9 @@ If you are unsure, keep the repository private and deploy from it.
    OPENAI_API_KEY = "<your key>"
    ```
 
-   These become environment variables. Other providers need their CrewAI extra added to
+   Only top-level keys (above any `[section]` header) become environment variables, which is what the code
+   reads. Pick a model name your provider currently lists as available and not deprecated: a retired
+   model name makes every plan fail. Other providers need their CrewAI extra added to
    `requirements.txt` (for example `crewai[anthropic]`, `crewai[google-genai]`) and their own key variable.
 5. **Deploy.** Click **Deploy**. The first build installs `requirements.txt` and usually takes a few minutes.
    Logs appear on the right side of the app page (visible only to people with write access to the repo).
@@ -294,7 +299,7 @@ or **Delete Service**.
 Open the URL in a private/incognito window, signed out of GitHub and the hosting provider.
 
 - [ ] Loads over HTTPS with no login prompt.
-- [ ] Disclaimer is visible without scrolling; no "Deploy" button or developer menu.
+- [ ] The "educational demo" line under the title is visible without scrolling; no "Deploy" button or developer menu.
 - [ ] Submit with nothing filled in: friendly "Please answer every question" message.
 - [ ] Sample A gives "Higher-risk pattern"; sample B gives "Lower-risk pattern"; no percentage anywhere.
 - [ ] Works on a phone-sized window.
@@ -319,7 +324,10 @@ Open the URL in a private/incognito window, signed out of GitHub and the hosting
 | Build is slow or fails installing `crewai` dependencies | CrewAI pulls about 100 packages (chromadb, onnxruntime, openai...). Retry the build; if it keeps failing, delete the `crewai`, `mcp` and `pysqlite3-binary` lines from `requirements.txt` (keep `pydantic`) and the app deploys without AI guidance. |
 | Logs show `unsupported version of sqlite3` | chromadb (imported by crewai) needs SQLite 3.35+. `pysqlite3-binary` in `requirements.txt` is the fallback and is applied automatically on Linux; confirm it installed. |
 | AI section says "not set up" / "not installed" | `DIET_AGENT_MODEL` or the provider key is missing from the secrets, or `crewai` was not installed. The log has one line naming what is missing. |
-| AI section says the plan "could not be generated" | The provider rejected the call (bad key, no credit, rate limit, unknown model name) or timed out. Check the provider dashboard; the log shows only the error type. |
+| AI section says "not working on this server right now" | The provider answered 400, 401, 403 or 404: wrong or revoked key, a model name the account cannot use or that was retired, or a parameter the model rejects. Open **Manage app** to see the log line `AI provider call failed: ... (HTTP status N, provider code ..., parameter ...)`; the status and code say which. |
+| AI section says the service is busy / over its usage limit | HTTP 429: rate limit or no credit left on the provider account. |
+| AI section says the tool that reads the risk model could not be started | The local MCP subprocess failed to start in time (only when "share my answers" is ticked). Plans without sharing still work. |
+| App says the prediction model is unavailable after you retrained | `models/best_model.joblib` no longer matches `models/model_card.json`. Run `python src/registry.py promote <version>` (or restore the committed file) and commit both. |
 | Logs show an MCP connection timeout | CrewAI waits 10 s for the local MCP server to start. Schema-only mode starts in about 1.5 s here; `--with-prediction` loads the model first and can be slower. The app never uses that mode. |
 | App "asleep" | Expected on free tiers; visitors wake it (Community Cloud) or the first request does (Render). |
 
@@ -338,6 +346,36 @@ Open the URL in a private/incognito window, signed out of GitHub and the hosting
   That limit is per session, so set a monthly spending cap on the provider key as the real safeguard.
 - If traffic grows, the practical next step is a paid always-on instance (for example a paid Render web
   service); the risk check itself is lightweight.
+
+### What can run where (checked against the providers' own docs on 2026-10-25)
+
+Free-tier terms change without notice; re-read the linked pages before relying on any of this.
+
+| Part | Needs hosting? | Reasoning |
+|---|---|---|
+| Streamlit app | Yes | Community Cloud is free; apps with no traffic for 12 hours sleep and wake on a visit ([docs](https://docs.streamlit.io/deploy/streamlit-community-cloud/manage-your-app)). Nothing the app writes to disk should be relied on. |
+| Prediction API (FastAPI) | No | The app predicts in-process. The existing FastAPI app only validates and logs to Postgres, and is off. A separately hosted API would add a network hop, a second service that sleeps, and nothing the page needs. |
+| MCP server | No | It is a stdio subprocess started inside the app's own container for each plan that shares answers. It is not meant to be reachable from outside. |
+| MLflow tracking + registry | No, keep it local | The deployed app never imports MLflow; it serves the committed `models/best_model.joblib` and `model_card.json`. MLflow is a development record. A remote one needs a database and artifact storage (MLflow supports SQLite, PostgreSQL, MySQL and MSSQL as the backend store and S3-style storage for artifacts: [docs](https://mlflow.org/docs/latest/self-hosting/architecture/overview)). |
+| Scheduled / background jobs | Not on the free web hosts | Render's free tier is web services only: "Other service types don't support Free instances", its free web services spin down after 15 minutes without traffic and lose local files on restart, and free Postgres expires 30 days after creation ([docs](https://render.com/docs/free)). Hugging Face free Spaces sleep when unused and have non-persistent disk ([docs](https://huggingface.co/docs/hub/spaces-overview)). A web app being deployed does not mean a background process keeps running. There is no scheduled work in this project now. |
+
+Options if you later want a shared, always-reachable MLflow (none was created or tested here):
+
+- **Databricks Free Edition:** no-cost, quota-limited, non-commercial use only, and Databricks may delete
+  accounts that are inactive for a prolonged period ([limits](https://docs.databricks.com/aws/en/getting-started/free-edition-limitations)).
+  Those pages do not mention MLflow or a model registry, so confirm that before planning around it.
+- **DagsHub free Individual plan:** 20 GB storage, up to 100 tracked experiments in private repositories,
+  unlimited for public ones; its pricing page lists "MLflow Compatible" but does not make clear whether
+  that is on the free plan ([pricing](https://dagshub.com/pricing)).
+- **Self-host an MLflow server** on a web host with a managed Postgres: Neon's free plan has 1 GB
+  per project and suspends compute after 5 minutes idle ([plans](https://neon.com/docs/introduction/plans)),
+  but you also need somewhere for artifacts and a host for the server process, so it is not free of effort or
+  of risk of cost.
+- **GitHub Actions** can run a scheduled job: standard runners are free for public repositories, private
+  repositories get 2,000 minutes per month on the Free plan, schedules can be delayed, and in a public
+  repository they are disabled after 60 days without repository activity
+  ([billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions),
+  [events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)).
 
 ## 10. Privacy, security and regulatory notes
 
@@ -372,5 +410,6 @@ Things to review **before** opening the app to the public (this is not legal adv
 - **Secrets.** None are required. Never commit `.env` files or `.streamlit/secrets.toml` (both are in
   `.gitignore`).
 - **Model limits.** Roughly 1 in 3 people flagged as higher risk reported diabetes/prediabetes and about 2
-  in 10 who did were not flagged; the data is 2015 self-reported US survey data. The disclaimer and result
-  wording are written to reflect that. Do not remove them.
+  in 10 who did were not flagged; the data is 2015 self-reported US survey data. The result wording
+  ("does not rule out diabetes", "not a diagnosis") and the educational-demo line under the title are written
+  to reflect that. Keep them.

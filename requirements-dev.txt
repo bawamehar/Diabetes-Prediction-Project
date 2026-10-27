@@ -6,6 +6,9 @@
 xgboost
 lightgbm
 
+# experiment tracking and model registry (src/tracking.py, src/registry.py); not needed by the deployed app
+mlflow>=3.16
+
 # optional local patient-logging API (api/)
 fastapi
 uvicorn

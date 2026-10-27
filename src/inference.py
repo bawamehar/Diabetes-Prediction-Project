@@ -8,6 +8,7 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
+import model_card
 from feature_schema import BINARY_FEATURES, BMI_RANGE, CATEGORY_RANGES
 from preprocess import UI_FEATURES, transform_user_input
 
@@ -79,12 +80,24 @@ def validate_features(features) -> dict:
 
 @lru_cache(maxsize=1)
 def load_model():
-    """Load the trained scaler + classifier pipeline once per process."""
+    """Load the trained scaler + classifier pipeline once per process.
+
+    The file must be the version named in models/model_card.json and must expect the features in
+    training order, otherwise it is refused rather than served.
+    """
     try:
-        return joblib.load(MODEL_PATH)
+        card = model_card.verify(MODEL_PATH)
+        model = joblib.load(MODEL_PATH)
+        if list(model.feature_names_in_) != list(UI_FEATURES):
+            raise ValueError("the model was trained on different features or a different feature order")
     except Exception as exc:
         logger.exception("Could not load the prediction model")
         raise ModelUnavailableError("The prediction model is currently unavailable.") from exc
+    if card is None:
+        logger.warning("No model card next to the model file, the model version is unknown")
+    else:
+        logger.info("Serving %s version %s (sha256 %s)", card["registered_model"], card["version"], card["sha256"][:12])
+    return model
 
 
 def predict_risk_class(features) -> int:

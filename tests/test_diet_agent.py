@@ -4,7 +4,9 @@ import os
 import shutil
 import sqlite3
 import sys
+import threading
 import types
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -63,7 +65,8 @@ def prompt_text(llm, call=0):
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch):
     for name in ("DIET_AGENT_MODEL", "DIET_AGENT_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-                 "GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY"):
+                 "GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "DIET_AGENT_BASE_URL",
+                 "DIET_AGENT_TEMPERATURE", "DIET_AGENT_MAX_TOKENS", "DIET_AGENT_REASONING_EFFORT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -229,6 +232,7 @@ def test_mcp_failures_become_a_friendly_error(monkeypatch):
     with pytest.raises(da.DietPlanError) as excinfo:
         da.generate_diet_plan(da.DietPreferences(), risk_class=1, shared_answers=ANSWERS, llm=scripted(final_answer()))
     assert "secret" not in str(excinfo.value)
+    assert "reads the risk model" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("claim", [
@@ -263,6 +267,177 @@ def test_llm_failures_do_not_leak_details():
     with pytest.raises(da.DietPlanError) as excinfo:
         da.generate_diet_plan(da.DietPreferences(foods_to_avoid="peanuts"), llm=llm)
     assert "sk-secret" not in str(excinfo.value) and "peanuts" not in str(excinfo.value)
+
+
+class StatusError(Exception):
+    def __init__(self, message, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+@pytest.mark.parametrize("error, expected_class, expected_text", [
+    (StatusError("Error code: 401 - {'error': {'code': 'invalid_api_key'}}", 401), da.DietAgentUnavailable, "not working"),
+    (ValueError("Model x not found: Error code: 404 - {'error': {'code': 'model_not_found'}}"), da.DietAgentUnavailable, "not working"),
+    (StatusError("Error code: 400 - {'error': {'param': 'max_tokens'}}", 400), da.DietAgentUnavailable, "not working"),
+    (StatusError("Error code: 429 - {'error': {'code': 'insufficient_quota'}}", 429), da.DietPlanError, "usage limit"),
+    (type("APITimeoutError", (Exception,), {})("Request timed out."), da.DietPlanError, "took too long"),
+    (RuntimeError("something odd"), da.DietPlanError, "could not be generated"),
+])
+def test_provider_failures_get_a_specific_visitor_message(error, expected_class, expected_text):
+    failure = da._llm_failure(error)
+    assert type(failure) is expected_class
+    assert expected_text in str(failure)
+
+
+def test_provider_failure_log_has_status_and_code_but_no_message(caplog):
+    error = StatusError(
+        "Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-proj-abcd1234', "
+        "'code': 'invalid_api_key', 'param': None}}", 401,
+    )
+    da._llm_failure(error)
+    assert "HTTP status 401" in caplog.text and "invalid_api_key" in caplog.text
+    assert "sk-proj" not in caplog.text and "Incorrect API key" not in caplog.text
+
+
+def test_temperature_and_token_limit_are_not_sent_unless_set(monkeypatch):
+    options = da._llm_options("openai/gpt-5-mini")
+    assert "temperature" not in options and "max_tokens" not in options and "reasoning_effort" not in options
+
+    monkeypatch.setenv("DIET_AGENT_TEMPERATURE", "0.4")
+    monkeypatch.setenv("DIET_AGENT_MAX_TOKENS", "1500")
+    monkeypatch.setenv("DIET_AGENT_REASONING_EFFORT", "Low")
+    options = da._llm_options("openai/gpt-4o-mini")
+    assert options["temperature"] == 0.4 and options["max_tokens"] == 1500 and options["reasoning_effort"] == "low"
+
+
+def test_invalid_optional_settings_are_ignored(monkeypatch):
+    monkeypatch.setenv("DIET_AGENT_TEMPERATURE", "warm")
+    monkeypatch.setenv("DIET_AGENT_MAX_TOKENS", "lots")
+    monkeypatch.setenv("DIET_AGENT_REASONING_EFFORT", "extreme")
+    options = da._llm_options("openai/gpt-5-mini")
+    assert not {"temperature", "max_tokens", "reasoning_effort"} & set(options)
+
+
+def test_credentials_are_passed_through_without_being_hardcoded(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    assert da._llm_options("openai/gpt-5-mini")["api_key"] == "test-key"
+    assert "api_key" not in da._llm_options("someprovider/some-model")
+
+
+def test_warm_up_runs_once_in_the_background(monkeypatch):
+    done = threading.Event()
+    calls = []
+
+    def fake_import():
+        calls.append(1)
+        done.set()
+
+    monkeypatch.setattr(da, "_import_crewai", fake_import)
+    monkeypatch.setattr(da, "_warm_up_started", False)
+    da.start_warm_up()
+    da.start_warm_up()
+    assert done.wait(5)
+    assert calls == [1]
+
+
+class MockProvider:
+    # a local stand-in for the OpenAI API, so these tests make no real provider call
+    def __init__(self, status=200, reject_unsupported=False):
+        self.requests = []
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                outer.requests.append(body)
+                code, payload = status, None
+                if reject_unsupported and "max_tokens" in body:
+                    code, payload = 400, {"error": {
+                        "message": "Unsupported parameter: 'max_tokens' is not supported with this model.",
+                        "type": "invalid_request_error", "param": "max_tokens", "code": "unsupported_parameter"}}
+                elif reject_unsupported and body.get("temperature", 1) != 1:
+                    code, payload = 400, {"error": {
+                        "message": "Unsupported value: 'temperature' does not support 0.4 with this model.",
+                        "type": "invalid_request_error", "param": "temperature", "code": "unsupported_value"}}
+                elif status == 401:
+                    payload = {"error": {"message": "Incorrect API key provided: sk-proj-****.",
+                                         "type": "invalid_request_error", "param": None, "code": "invalid_api_key"}}
+                elif status == 404:
+                    payload = {"error": {"message": "The model does not exist.", "type": "invalid_request_error",
+                                         "param": None, "code": "model_not_found"}}
+                if payload is None:
+                    content = json.dumps(PLAN) if "response_format" in body else final_answer()
+                    payload = {"id": "c1", "object": "chat.completion", "created": 1, "model": "mock",
+                               "choices": [{"index": 0, "finish_reason": "stop",
+                                            "message": {"role": "assistant", "content": content}}],
+                               "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
+                data = json.dumps(payload).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_port}/v1"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+@pytest.fixture
+def mock_provider(monkeypatch):
+    started = []
+
+    def start(**options):
+        provider = MockProvider(**options)
+        started.append(provider)
+        monkeypatch.setenv("DIET_AGENT_MODEL", "openai/gpt-5-mini")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setenv("DIET_AGENT_BASE_URL", provider.url)
+        return provider
+
+    yield start
+    for provider in started:
+        provider.close()
+
+
+def test_a_provider_that_rejects_temperature_and_token_limits_still_gives_a_plan(mock_provider):
+    provider = mock_provider(reject_unsupported=True)
+    plan = da.generate_diet_plan(da.DietPreferences())
+    assert plan.meals
+    sent = provider.requests[0]
+    assert "max_tokens" not in sent and "temperature" not in sent
+    assert sent["model"] == "gpt-5-mini"
+
+
+def test_old_defaults_would_have_been_rejected_by_that_provider(mock_provider, monkeypatch):
+    provider = mock_provider(reject_unsupported=True)
+    monkeypatch.setenv("DIET_AGENT_TEMPERATURE", "0.4")
+    monkeypatch.setenv("DIET_AGENT_MAX_TOKENS", "1500")
+    with pytest.raises(da.DietAgentUnavailable, match="not working"):
+        da.generate_diet_plan(da.DietPreferences())
+    assert provider.requests[0]["max_tokens"] == 1500
+
+
+def test_rejected_credentials_are_reported_without_the_key(mock_provider, caplog):
+    mock_provider(status=401)
+    with pytest.raises(da.DietAgentUnavailable) as excinfo:
+        da.generate_diet_plan(da.DietPreferences())
+    assert "test-key" not in str(excinfo.value)
+    assert "HTTP status 401" in caplog.text and "invalid_api_key" in caplog.text
+
+
+def test_an_unknown_model_is_reported_as_a_setup_problem(mock_provider, caplog):
+    mock_provider(status=404)
+    with pytest.raises(da.DietAgentUnavailable):
+        da.generate_diet_plan(da.DietPreferences())
+    assert "HTTP status 404" in caplog.text and "model_not_found" in caplog.text
 
 
 def test_long_lists_are_trimmed():

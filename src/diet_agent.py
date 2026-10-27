@@ -10,6 +10,7 @@ import os
 import re
 import sqlite3
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Literal, get_args
 
@@ -36,6 +37,8 @@ PROVIDER_KEYS = {
     "google": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
     "groq": ("GROQ_API_KEY",),
 }
+REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
+GENERIC_FAILURE = "The dietary plan could not be generated right now. Please try again later."
 
 EatingPattern = Literal[
     "No particular pattern", "Vegetarian", "Vegan", "Pescatarian",
@@ -177,6 +180,87 @@ def _import_crewai():
     return LLM, Agent, PrivateCrew, Process, Task, MCPServerStdio, create_static_tool_filter
 
 
+_warm_up_started = False
+
+
+def start_warm_up():
+    """Import crewai in the background, it takes several seconds the first time."""
+    global _warm_up_started
+    if _warm_up_started:
+        return
+    _warm_up_started = True
+
+    def run():
+        try:
+            _import_crewai()
+        except DietAgentUnavailable:
+            pass
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _number_from_env(name, kind):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return kind(raw)
+    except ValueError:
+        _log_once(f"{name} is not a valid number, ignoring it")
+        return None
+
+
+def _llm_options(model):
+    # temperature and max_tokens are only sent when set: the gpt-5 models reject them
+    options = {"model": model, "timeout": 60}
+    if _api_key(model):
+        options["api_key"] = _api_key(model)
+    if os.environ.get("DIET_AGENT_BASE_URL", "").strip():
+        options["base_url"] = os.environ["DIET_AGENT_BASE_URL"].strip()
+    for name, option, kind in (
+        ("DIET_AGENT_TEMPERATURE", "temperature", float), ("DIET_AGENT_MAX_TOKENS", "max_tokens", int),
+    ):
+        value = _number_from_env(name, kind)
+        if value is not None:
+            options[option] = value
+    effort = os.environ.get("DIET_AGENT_REASONING_EFFORT", "").strip().lower()
+    if effort in REASONING_EFFORTS:
+        options["reasoning_effort"] = effort
+    elif effort:
+        _log_once("DIET_AGENT_REASONING_EFFORT is not one of " + ", ".join(REASONING_EFFORTS) + ", ignoring it")
+    return options
+
+
+def _provider_facts(exc):
+    # status, error code and parameter name only, the message can quote the request
+    text = str(exc)
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        match = re.search(r"Error code: (\d{3})", text)
+        status = int(match.group(1)) if match else None
+    code = re.search(r"'code': '([\w.-]{1,60})'", text)
+    param = re.search(r"'param': '([\w.-]{1,60})'", text)
+    return status, code.group(1) if code else None, param.group(1) if param else None
+
+
+def _llm_failure(exc):
+    """Log why the model call failed and return the error to show visitors."""
+    status, code, param = _provider_facts(exc)
+    logger.error(
+        "AI provider call failed: %s (HTTP status %s, provider code %s, parameter %s)",
+        type(exc).__name__, status, code, param,
+    )
+    if status in (400, 401, 403, 404):
+        return DietAgentUnavailable(
+            "AI dietary guidance is not working on this server right now. Your risk result is not affected."
+        )
+    if status == 429:
+        return DietPlanError("The AI service is busy or over its usage limit. Please try again later.")
+    if "timeout" in type(exc).__name__.lower() or "timed out" in str(exc).lower():
+        return DietPlanError("The AI service took too long to answer. Please try again.")
+    return DietPlanError(GENERIC_FAILURE)
+
+
 def build_task_description(preferences, risk_class=None, shared_answers=None, allow_prediction=False):
     if shared_answers is not None:
         described = "; ".join(f"{name}: {text}" for name, text in fs.describe_answers(shared_answers).items())
@@ -258,13 +342,7 @@ def generate_diet_plan(preferences, risk_class=None, shared_answers=None, llm=No
     allow_prediction = use_mcp and risk_class is None
 
     if llm is None:
-        model = os.environ["DIET_AGENT_MODEL"].strip()
-        options = {"model": model, "temperature": 0.4, "max_tokens": 1500, "timeout": 60}
-        if _api_key(model):
-            options["api_key"] = _api_key(model)
-        if os.environ.get("DIET_AGENT_BASE_URL", "").strip():
-            options["base_url"] = os.environ["DIET_AGENT_BASE_URL"].strip()
-        llm = LLM(**options)
+        llm = LLM(**_llm_options(os.environ["DIET_AGENT_MODEL"].strip()))
 
     agent = Agent(
         role="Dietary guidance writer",
@@ -288,8 +366,11 @@ def generate_diet_plan(preferences, risk_class=None, shared_answers=None, llm=No
         try:
             tools = agent.get_mcp_tools([server])
         except Exception as exc:
-            logger.error("Could not reach the local MCP server: %s", type(exc).__name__)
-            raise DietPlanError("The dietary plan could not be generated right now. Please try again later.") from exc
+            logger.error("Could not start the local MCP server: %s", type(exc).__name__)
+            raise DietPlanError(
+                "The tool that reads the risk model could not be started, so no plan was written. "
+                "Please try again without sharing your answers."
+            ) from exc
         for tool in tools:
             # CrewAI names stdio tools after the server's full command path, which is truncated and leaks local paths
             tool.name = f"diabetes_risk_{tool.original_tool_name}"
@@ -304,9 +385,11 @@ def generate_diet_plan(preferences, risk_class=None, shared_answers=None, llm=No
 
     try:
         output = crew.kickoff()
+    except Exception as exc:
+        raise _llm_failure(exc) from exc
+    try:
         plan = output.pydantic or DietPlan.model_validate_json(output.raw)
     except Exception as exc:
-        # type only: provider errors can echo parts of the request
-        logger.error("Dietary guidance failed: %s", type(exc).__name__)
-        raise DietPlanError("The dietary plan could not be generated right now. Please try again later.") from exc
+        logger.error("The AI reply could not be read as a plan: %s", type(exc).__name__)
+        raise DietPlanError("The generated plan was incomplete. Please try again.") from exc
     return _check_plan(plan)

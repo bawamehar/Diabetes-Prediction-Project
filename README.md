@@ -48,8 +48,10 @@ Every question is required. Values outside these ranges are rejected with a clea
   | 71.9% | 78.9% | 33.4% | 0.825 | 37.2% of people |
 
   In plain terms: it catches about 8 in 10 respondents who reported prediabetes/diabetes, misses about
-  2 in 10, and only about 1 in 3 of the people it flags actually reported it. Re-running `train.py`
-  uses a fresh 90/10 split, so those figures will shift slightly.
+  2 in 10, and only about 1 in 3 of the people it flags actually reported it.
+- **Where this exact file came from:** it was trained on 190,265 of the 228,312 non-held-out rows, by the
+  earlier retraining workflow that has since been removed. `src/train.py` trains on all 228,312, so
+  running it produces a different model (same held-out rows, so the numbers stay comparable).
 - **No percentage is shown, on purpose.** Because of the class balancing, the model's raw scores are not
   probabilities. On the held-out data the average score was 0.39 while the true rate was 0.16, and among
   people scored 0.8-0.9 only about 52% actually reported diabetes. The app therefore shows only the
@@ -91,9 +93,10 @@ pytest
 The suite covers model loading, input validation (missing, malformed and out-of-range values), the
 Streamlit page (both result messages, no percentage shown, friendly errors, no data sent anywhere by
 default), the MCP server (schemas, validation, a real stdio session), the CrewAI agent and the dietary
-section of the page, and the optional API. API tests skip themselves if FastAPI is not installed.
-The LLM is always replaced by a scripted stand-in, so no key or network is needed and nothing here
-proves a real model answers well.
+section of the page, the model card check, MLflow logging and the registry (in a temporary store), and
+the optional API. API and MLflow tests skip themselves if FastAPI or MLflow is not installed.
+The LLM is always replaced by a scripted stand-in or a local mock of the provider's HTTP API, so no key
+or network is needed and nothing here proves a real model answers well.
 
 ## Retraining the model (manual)
 
@@ -104,9 +107,45 @@ pip install -r requirements-dev.txt
 python src/train.py
 ```
 
-This overwrites `models/best_model.joblib` and prints test-set accuracy, recall, precision and ROC AUC.
-Review those numbers before committing a new model, and keep the pinned scikit-learn version in
-`requirements.txt` in step with the version that produced the file.
+This overwrites `models/best_model.joblib`, prints test-set accuracy, recall, precision and ROC AUC, and
+records the run in MLflow (next section). Review those numbers before committing a new model, and keep the
+pinned scikit-learn version in `requirements.txt` in step with the version that produced the file.
+
+## Experiment tracking and model registry (MLflow)
+
+MLflow is for development only: it is in `requirements-dev.txt` and the deployed app never imports it.
+
+- **Tracking.** Each `src/train.py` run is logged to the experiment `diabetes-risk`: algorithm,
+  hyperparameters, split settings, row counts, a hash of the data file, the holdout metrics (accuracy,
+  precision, recall, F1, ROC AUC, confusion counts), the cross-validation scores of the chosen model, the
+  candidate ranking, the feature order and the model itself. No survey rows or answers are logged.
+- **Registry.** The model is registered as a new version of `diabetes-risk-classifier`. Registering does
+  **not** change what the app serves.
+- **Choosing the served version.**
+
+  ```powershell
+  python src/registry.py show          # versions, the champion alias, and whether models/ matches the card
+  python src/registry.py promote 2     # serve version 2
+  ```
+
+  `promote` sets the `champion` alias, puts that version's original `.joblib` file at
+  `models/best_model.joblib` and rewrites `models/model_card.json`. Commit both to deploy it.
+- **How the app knows its version.** `models/model_card.json` names the registered model, version and
+  SHA-256 of `models/best_model.joblib`. `src/inference.py` checks the file against it when it loads the
+  model and also checks the feature order, so a file that was swapped by hand or by `train.py` is refused
+  (the page says the model is unavailable) rather than served under the wrong version. The server log
+  shows `Serving diabetes-risk-classifier version N` once at startup.
+- **Where it is stored.** By default in `mlflow_store/` (a SQLite database plus artifacts, git-ignored). Set
+  `MLFLOW_TRACKING_URI` to use a different database or a tracking server, and `MLFLOW_EXPERIMENT_NAME` to
+  change the experiment. Nothing under `mlflow_store/` exists on a hosting platform, and files written there
+  would not survive a restart, so the registry is a local record; the model card is what travels.
+- **Version history.** Neither earlier model had an MLflow run, so `python src/backfill_registry.py --apply`
+  (already run once on this machine; it refuses to run twice) registered them as runs that say so:
+  version 1 is the original AdaBoost model recovered from git (commit `11ed81e`, 21 inputs, never
+  evaluated here, cannot be served by this app) and version 2 is the current file, with its holdout
+  metrics recomputed from the saved model. Versions are numbered by registration order, so that is the only
+  way the current model could honestly be version 2. On a new machine, run the same command to rebuild the
+  local registry, or ignore it if you only need the app.
 
 ## Optional: patient-logging API (local only, off by default)
 
@@ -146,12 +185,33 @@ Configuration (environment variables, or Streamlit secrets on Community Cloud):
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` | The key for that provider (or set `DIET_AGENT_API_KEY`) |
 | `DIET_AGENT_BASE_URL` | Optional, for an OpenAI-compatible server (for example a local model) |
 | `DIET_AGENT_MAX_PER_SESSION` | Plans allowed per browser session, default 3 |
+| `DIET_AGENT_TEMPERATURE`, `DIET_AGENT_MAX_TOKENS` | Optional. Left unset they are not sent, because the gpt-5 models reject them |
+| `DIET_AGENT_REASONING_EFFORT` | Optional (`minimal`, `low`, `medium`, `high`), for reasoning models that accept it |
+
+On your machine, set them in the shell:
 
 ```powershell
 $env:DIET_AGENT_MODEL = "openai/<model name>"
 $env:OPENAI_API_KEY = "<your key>"      # never commit keys
 streamlit run Streamlit/ui.py
 ```
+
+On Streamlit Community Cloud, paste this (TOML) into **Advanced settings -> Secrets**. The names must be at
+the top level, above any `[section]` header: only top-level secrets become environment variables, and
+this code reads environment variables.
+
+```toml
+DIET_AGENT_MODEL = "openai/<model name>"
+OPENAI_API_KEY = "<your key>"
+```
+
+Other hosts (Render, Hugging Face) use their own environment-variable or secrets settings with the same
+names, not TOML. A local `.streamlit/secrets.toml` also works but is git-ignored; nothing needs a `.env` file.
+Check which model names your provider currently offers: some are deprecated and get shut down.
+
+If a plan cannot be written, the page shows a short message and the server log has one line saying which
+step failed (starting the MCP tool, or the provider call with its HTTP status and error code, never the
+request text or the key).
 
 Only `openai` works with the pinned install as is; other providers need their extra, for example
 `pip install "crewai[anthropic]"` or `"crewai[google-genai]"`, and the same added to `requirements.txt`
@@ -179,10 +239,15 @@ src/feature_schema.py  feature limits, answer labels, output meaning (shared by 
 src/diet_agent.py      CrewAI dietary guidance agent (optional)
 src/mcp_server.py      local MCP server exposing the schema and, optionally, the prediction
 src/preprocess.py      feature list and input alignment
-src/train.py           trains/compares candidate models and saves the best
+src/train.py           trains/compares candidate models, saves the best and logs it to MLflow
 src/evaluate.py        cross-validation and the weighted model-selection score
 src/predict.py         command-line trainer/predictor (older script)
+src/model_card.py      checks models/best_model.joblib against models/model_card.json (no MLflow needed)
+src/tracking.py        MLflow logging and registration helpers (development only)
+src/registry.py        `show` / `promote` commands for choosing the served model version
+src/backfill_registry.py   one-off registration of the two existing models
 models/best_model.joblib   the trained scaler + classifier pipeline
+models/model_card.json     which registered version that file is, with its SHA-256 and holdout metrics
 Data/data/diabetes.csv     training data (BRFSS 2015)
 api/                   optional local patient-logging API (not used by the public app)
 tests/                 pytest suite

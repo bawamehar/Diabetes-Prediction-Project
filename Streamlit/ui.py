@@ -27,16 +27,8 @@ SHARED_FEATURES = ["HighBP", "HighChol", "BMI", "GenHlth", "Age"]
 st.title("Diabetes Risk Check")
 st.caption("An educational demo built on a public US health survey")
 
-st.warning(
-    "**For educational and informational purposes only.** This tool is **not** a medical "
-    "diagnosis and does not replace professional medical advice, diagnosis or treatment. "
-    "If you have any concerns about your health, please talk to a qualified healthcare professional."
-)
-
 if PATIENT_LOG_API_URL:
     st.info("Local test mode: your answers are sent to the configured patient-logging API.")
-else:
-    st.caption("Your answers are used only to produce the result below. This app does not save them.")
 
 with st.form("risk_form"):
     st.subheader("Your answers")
@@ -103,14 +95,8 @@ def show_result(risk_class):
     else:
         st.success(
             "**Lower-risk pattern.** Your answers are more similar to those of survey respondents "
-            "who did not report prediabetes or diabetes. This does **not** rule out diabetes - "
-            "the tool misses some people who do have it. If you have any concerns, talk to a "
-            "healthcare professional."
+            "who did not report prediabetes or diabetes. This does **not** rule out diabetes."
         )
-    st.info(
-        "This is an educational demo, not medical advice. Only a clinical test ordered by a "
-        "healthcare professional can diagnose diabetes."
-    )
 
 
 def _plain(text):
@@ -153,6 +139,7 @@ def show_diet_section(result):
     if problem:
         st.info(problem)
         return
+    diet_agent.start_warm_up()
 
     with st.form("diet_form"):
         eating_pattern = st.selectbox("Eating pattern", diet_agent.EATING_PATTERNS)
@@ -164,11 +151,11 @@ def show_diet_section(result):
         cooking_time = st.selectbox("Time available to cook", diet_agent.COOKING_TIMES, index=1)
         share = st.checkbox(
             "Also share my risk-check result and answers (blood pressure, cholesterol, BMI, general health, "
-            "age group) so the plan can be tailored. Income and education are never sent."
+            "age group) so the plan can be tailored."
         )
         st.caption(
-            f"When you click the button, your preferences (and your answers if ticked) are sent to the "
-            f"AI provider ({diet_agent.provider_name()}) to write the plan. This app does not store them."
+            f"Your preferences (and your answers if ticked) are sent to the AI provider "
+            f"({diet_agent.provider_name()}) to write the plan."
         )
         generate = st.form_submit_button("Generate dietary guidance")
 
@@ -236,20 +223,3 @@ if submitted:
 if "result" in st.session_state:
     show_result(st.session_state["result"]["risk_class"])
     show_diet_section(st.session_state["result"])
-
-with st.expander("How to read this result, and its limits"):
-    st.markdown(
-        """
-- **What it compares.** The model compares your seven answers with about 254,000 responses to the
-  2015 CDC Behavioral Risk Factor Surveillance System (BRFSS) health survey. "Higher risk" means your
-  answers resemble those of respondents who reported prediabetes or diabetes.
-- **Why no percentage.** The model is tuned to catch most people who report diabetes, so its raw scores
-  overstate risk and are not a probability that you have diabetes. For that reason none is shown.
-- **It makes mistakes in both directions.** Because it is tuned to catch most cases, it also flags many
-  people who do not have diabetes, and it still misses some who do.
-- **Only seven answers.** Family history, diet, physical activity, symptoms and blood tests are not
-  included, and all of them matter.
-- **Survey data has limits.** The responses are self-reported, come from US adults in 2015, and may not
-  represent everyone equally.
-"""
-    )
